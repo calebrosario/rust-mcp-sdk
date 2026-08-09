@@ -74,13 +74,35 @@ pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolsCapability>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub resources: Option<Value>,
+    pub resources: Option<ResourcesCapability>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompts: Option<Value>,
+    pub prompts: Option<PromptsCapability>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logging: Option<LoggingCapability>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolsCapability {}
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ToolsCapability {
+    #[serde(rename = "listChanged", default)]
+    pub list_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResourcesCapability {
+    #[serde(rename = "subscribe", default)]
+    pub subscribe: bool,
+    #[serde(rename = "listChanged", default)]
+    pub list_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PromptsCapability {
+    #[serde(rename = "listChanged", default)]
+    pub list_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LoggingCapability {}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitializeResult {
@@ -103,6 +125,8 @@ pub struct Tool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListToolsResult {
     pub tools: Vec<Tool>,
+    #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +154,16 @@ pub enum Content {
         #[serde(rename = "mimeType")]
         mime_type: String,
     },
+    #[serde(rename = "resource")]
+    ResourceLink { resource: ResourceLink },
+}
+
+/// A reference to a resource, used in `Content::ResourceLink`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceLink {
+    pub uri: String,
+    #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
 }
 
 impl Content {
@@ -178,9 +212,113 @@ impl JsonRpcResponse {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+// --- Pagination ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListParams {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+// --- Resources ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Resource {
+    pub uri: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListResourcesResult {
+    pub resources: Vec<Resource>,
+    #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadResourceParams {
+    pub uri: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResourceContents {
+    #[serde(rename = "text")]
+    Text {
+        uri: String,
+        #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        text: String,
+    },
+    #[serde(rename = "blob")]
+    Blob {
+        uri: String,
+        #[serde(rename = "mimeType", skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        blob: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReadResourceResult {
+    pub contents: Vec<ResourceContents>,
+}
+
+// --- Prompts ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptArgument {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "required", default)]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Prompt {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<PromptArgument>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListPromptsResult {
+    pub prompts: Vec<Prompt>,
+    #[serde(rename = "nextCursor", skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetPromptParams {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptMessage {
+    pub role: String,
+    pub content: Content,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetPromptResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub messages: Vec<PromptMessage>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
 pub enum ProtocolVersion {
     V20241105,
+    #[default]
     Latest,
 }
 
@@ -190,11 +328,5 @@ impl ProtocolVersion {
             ProtocolVersion::V20241105 => "2024-11-05",
             ProtocolVersion::Latest => "2024-11-05",
         }
-    }
-}
-
-impl Default for ProtocolVersion {
-    fn default() -> Self {
-        ProtocolVersion::Latest
     }
 }

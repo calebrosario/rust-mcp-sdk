@@ -17,6 +17,12 @@ pub enum McpError {
     #[error("Tool not found: {0}")]
     ToolNotFound(String),
 
+    #[error("Resource not found: {0}")]
+    ResourceNotFound(String),
+
+    #[error("Prompt not found: {0}")]
+    PromptNotFound(String),
+
     #[error("Transport error: {0}")]
     Transport(String),
 }
@@ -29,6 +35,8 @@ impl McpError {
             McpError::InvalidParams(_) => -32602,
             McpError::Internal(_) => -32603,
             McpError::ToolNotFound(_) => -32601,
+            McpError::ResourceNotFound(_) => -32002,
+            McpError::PromptNotFound(_) => -32002,
             McpError::Transport(_) => -32000,
         }
     }

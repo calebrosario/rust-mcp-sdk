@@ -7,9 +7,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 pub type ToolHandler = Arc<
-    dyn Fn(Value) -> Pin<Box<dyn Future<Output = McpResult<CallToolResult>> + Send>>
-        + Send
-        + Sync,
+    dyn Fn(Value) -> Pin<Box<dyn Future<Output = McpResult<CallToolResult>> + Send>> + Send + Sync,
 >;
 
 pub struct ToolBuilder {
@@ -55,11 +53,7 @@ impl ToolBuilder {
             input_schema: self.input_schema,
         };
         let handler = self.handler.unwrap_or_else(|| {
-            Arc::new(|_| {
-                Box::pin(async {
-                    Ok(CallToolResult::error("No handler registered"))
-                })
-            })
+            Arc::new(|_| Box::pin(async { Ok(CallToolResult::error("No handler registered")) }))
         });
         (self.name, tool, handler)
     }
@@ -77,27 +71,37 @@ impl ToolRegistry {
         }
     }
 
-    pub fn register(
-        &mut self,
-        name: String,
-        tool: crate::protocol::Tool,
-        handler: ToolHandler,
-    ) {
+    pub fn register(&mut self, name: String, tool: crate::protocol::Tool, handler: ToolHandler) {
         self.tools.insert(name, (tool, handler));
     }
 
     pub fn list(&self) -> Vec<crate::protocol::Tool> {
-        let tools: Vec<crate::protocol::Tool> = self
-            .tools
+        self.tools
             .values()
             .map(|(t, _): &(crate::protocol::Tool, ToolHandler)| t.clone())
-            .collect();
-        tools
+            .collect()
+    }
+
+    pub fn get_handler(&self, name: &str) -> Option<ToolHandler> {
+        self.tools.get(name).map(|(_, h)| h.clone())
     }
 
     pub async fn call(&self, params: CallToolParams) -> McpResult<CallToolResult> {
         match self.tools.get(&params.name) {
-            Some((_, handler)) => handler(params.arguments).await,
+            Some((_, handler)) => {
+                let handler = handler.clone();
+                let args = params.arguments;
+                match tokio::spawn(async move { handler(args).await }).await {
+                    Ok(result) => result,
+                    Err(join_err) => {
+                        tracing::error!("Tool handler panicked: {}", join_err);
+                        Err(crate::error::McpError::Internal(format!(
+                            "Handler panicked: {}",
+                            join_err
+                        )))
+                    }
+                }
+            }
             None => Err(crate::error::McpError::ToolNotFound(params.name)),
         }
     }

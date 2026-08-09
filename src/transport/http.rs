@@ -4,12 +4,15 @@ use axum::{extract::State, http::StatusCode, response::Json, routing::post, Rout
 use serde_json::Value;
 use std::sync::Arc;
 
+const MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
+
 pub struct HttpTransport;
 
 impl HttpTransport {
     pub async fn serve(server: Arc<McpServer>, addr: &str) -> McpResult<()> {
         let app = Router::new()
             .route("/mcp", post(handle_mcp))
+            .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_SIZE))
             .with_state(server);
 
         let listener = tokio::net::TcpListener::bind(addr)
@@ -43,13 +46,15 @@ async fn handle_mcp(
                     e.to_string(),
                     None,
                 );
-                Ok(Json(serde_json::to_value(error_response).unwrap_or_default()))
+                Ok(Json(
+                    serde_json::to_value(error_response).unwrap_or_default(),
+                ))
             }
         }
     } else {
         let notification: crate::protocol::JsonRpcNotification =
             serde_json::from_value(body).map_err(|_| StatusCode::BAD_REQUEST)?;
-        server.handle_notification(&notification);
+        server.handle_notification(&notification).await;
         Ok(Json(serde_json::json!({"status": "ok"})))
     }
 }
