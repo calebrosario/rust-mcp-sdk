@@ -14,6 +14,7 @@ pub struct McpServer {
     resource_registry: Arc<Mutex<ResourceRegistry>>,
     prompt_registry: Arc<Mutex<PromptRegistry>>,
     initialized: Arc<Mutex<bool>>,
+    handler_timeout_secs: u64,
 }
 
 impl McpServer {
@@ -28,11 +29,17 @@ impl McpServer {
             resource_registry: Arc::new(Mutex::new(ResourceRegistry::new())),
             prompt_registry: Arc::new(Mutex::new(PromptRegistry::new())),
             initialized: Arc::new(Mutex::new(false)),
+            handler_timeout_secs: 60,
         }
     }
 
     pub fn protocol_version(mut self, version: ProtocolVersion) -> Self {
         self.protocol_version = version;
+        self
+    }
+
+    pub fn handler_timeout(mut self, secs: u64) -> Self {
+        self.handler_timeout_secs = secs;
         self
     }
 
@@ -133,13 +140,30 @@ impl McpServer {
         };
 
         let result: CallToolResult = match handler {
-            Some(h) => match tokio::spawn(async move { h(call_params.arguments).await }).await {
-                Ok(r) => r?,
-                Err(join_err) => {
-                    tracing::error!("Tool handler panicked: {}", join_err);
-                    return Err(McpError::Internal("Handler execution failed".into()));
+            Some(h) => {
+                let handler_timeout = std::time::Duration::from_secs(
+                    self.handler_timeout_secs,
+                );
+                match tokio::time::timeout(
+                    handler_timeout,
+                    tokio::spawn(async move { h(call_params.arguments).await }),
+                ).await {
+                    Ok(Ok(r)) => r?,
+                    Ok(Err(join_err)) => {
+                        tracing::error!("Tool handler panicked: {}", join_err);
+                        return Err(McpError::Internal("Handler execution failed".into()));
+                    }
+                    Err(_) => {
+                        tracing::error!(
+                            "Tool '{}' timed out after {}s",
+                            call_params.name, self.handler_timeout_secs
+                        );
+                        return Err(McpError::Internal(format!(
+                            "Tool '{}' timed out", call_params.name
+                        )));
+                    }
                 }
-            },
+            }
             None => return Err(McpError::ToolNotFound(call_params.name)),
         };
 
@@ -168,11 +192,21 @@ impl McpServer {
         let contents = match handler {
             Some(h) => {
                 let uri = read_params.uri;
-                match tokio::spawn(async move { h(&uri).await }).await {
-                    Ok(c) => c?,
-                    Err(join_err) => {
+                let handler_timeout = std::time::Duration::from_secs(
+                    self.handler_timeout_secs,
+                );
+                match tokio::time::timeout(
+                    handler_timeout,
+                    tokio::spawn(async move { h(&uri).await }),
+                ).await {
+                    Ok(Ok(c)) => c?,
+                    Ok(Err(join_err)) => {
                         tracing::error!("Resource handler panicked: {}", join_err);
                         return Err(McpError::Internal("Handler execution failed".into()));
+                    }
+                    Err(_) => {
+                        tracing::error!("Resource handler timed out");
+                        return Err(McpError::Internal("Resource handler timed out".into()));
                     }
                 }
             }
@@ -204,13 +238,25 @@ impl McpServer {
 
         let arguments = get_params.arguments.unwrap_or(Value::Null);
         let result = match handler {
-            Some(h) => match tokio::spawn(async move { h(arguments).await }).await {
-                Ok(r) => r?,
-                Err(join_err) => {
-                    tracing::error!("Prompt handler panicked: {}", join_err);
-                    return Err(McpError::Internal("Handler execution failed".into()));
+            Some(h) => {
+                let handler_timeout = std::time::Duration::from_secs(
+                    self.handler_timeout_secs,
+                );
+                match tokio::time::timeout(
+                    handler_timeout,
+                    tokio::spawn(async move { h(arguments).await }),
+                ).await {
+                    Ok(Ok(r)) => r?,
+                    Ok(Err(join_err)) => {
+                        tracing::error!("Prompt handler panicked: {}", join_err);
+                        return Err(McpError::Internal("Handler execution failed".into()));
+                    }
+                    Err(_) => {
+                        tracing::error!("Prompt handler timed out");
+                        return Err(McpError::Internal("Prompt handler timed out".into()));
+                    }
                 }
-            },
+            }
             None => return Err(McpError::PromptNotFound(get_params.name)),
         };
 
