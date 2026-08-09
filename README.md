@@ -2,9 +2,9 @@
 
 > Rust implementation of the Model Context Protocol (MCP) — build MCP servers with type safety, async performance, and a single static binary.
 
-[![Crates.io](https://img.shields.io/crates/v/mcp-sdk.svg)](https://crates.io/crates/mcp-sdk)
-[![Documentation](https://docs.rs/mcp-sdk/badge.svg)](https://docs.rs/mcp-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
+[![Protocol](https://img.shields.io/badge/MCP-2024--11--05-blue.svg)](https://modelcontextprotocol.io)
 
 ## What is MCP?
 
@@ -171,6 +171,50 @@ StdioTransport::serve(Arc::new(server)).await?;
 HttpTransport::serve(Arc::new(server), "127.0.0.1:3000").await?;
 ```
 
+### Resources
+
+```rust
+use mcp_sdk::{ResourceBuilder, ResourceContents};
+
+server.register_resource(
+    ResourceBuilder::new("file:///config.json", "Config")
+        .description("Server configuration")
+        .mime_type("application/json")
+        .handler(|uri| async move {
+            Ok(vec![ResourceContents::Text {
+                uri: uri.to_string(),
+                mime_type: Some("application/json".into()),
+                text: r#"{"version": "1.0"}"#.into(),
+            }])
+        })
+).await;
+```
+
+### Prompts
+
+```rust
+use mcp_sdk::{PromptBuilder, PromptMessage};
+
+server.register_prompt(
+    PromptBuilder::new("code_review")
+        .description("Review code")
+        .argument("language")
+        .argument_with("max_length", |a| a.description("Max words").required())
+        .handler(|args| async move {
+            let lang = args.get("language")
+                .and_then(|v| v.as_str())
+                .unwrap_or("rust");
+            Ok(mcp_sdk::GetPromptResult {
+                description: Some("Code review".into()),
+                messages: vec![PromptMessage {
+                    role: "user".into(),
+                    content: mcp_sdk::Content::text(format!("Review this {lang} code")),
+                }],
+            })
+        })
+).await;
+```
+
 ## MCP Protocol Compliance
 
 ### Implemented Methods
@@ -178,14 +222,16 @@ HttpTransport::serve(Arc::new(server), "127.0.0.1:3000").await?;
 | Method | Status | Description |
 |--------|--------|-------------|
 | `initialize` | ✅ | Server handshake + capabilities exchange |
-| `notifications/initialized` | ✅ | Client init notification |
+| `notifications/initialized` | ✅ | Client init notification + state tracking |
 | `tools/list` | ✅ | List all registered tools |
 | `tools/call` | ✅ | Execute a tool by name |
 | `ping` | ✅ | Health check |
-| `resources/list` | 📌 Planned | List available resources |
-| `resources/read` | 📌 Planned | Read a resource by URI |
-| `prompts/list` | 📌 Planned | List available prompts |
-| `prompts/get` | 📌 Planned | Execute a prompt by name |
+| `resources/list` | ✅ | List available resources |
+| `resources/read` | ✅ | Read a resource by URI |
+| `prompts/list` | ✅ | List available prompts |
+| `prompts/get` | ✅ | Execute a prompt by name |
+| `completion/complete` | 📌 Planned | Autocomplete for arguments |
+| `logging/setLevel` | 📌 Planned | Server log level control |
 
 ### Protocol Version
 
@@ -214,6 +260,8 @@ Errors are automatically converted to JSON-RPC error responses with appropriate 
 | `InvalidParams` | -32602 | Bad parameters |
 | `Internal` | -32603 | Server error |
 | `ToolNotFound` | -32601 | Unknown tool name |
+| `ResourceNotFound` | -32002 | Unknown resource URI |
+| `PromptNotFound` | -32002 | Unknown prompt name |
 | `Transport` | -32000 | I/O error |
 
 ## Testing
@@ -241,6 +289,35 @@ cargo clippy --all-features
 - **Sandbox execution**: Like [agentic-armor](https://github.com/calebrosario/agentic-armor) — manage Docker containers for untrusted code
 - **Data access**: Give agents read-only access to databases, files, or APIs
 - **Custom integrations**: Bridge any system to any MCP-compatible AI agent
+
+## Security
+
+### Built-in Protections
+
+| Protection | Status |
+|-----------|--------|
+| Payload size limit (stdio) | ✅ 10MB max line |
+| Argument logging level | ✅ DEBUG (not INFO) |
+| Raw payload removed from error logs | ✅ |
+| Handler error isolation | ✅ Errors return JSON-RPC error responses |
+| Error messages don't leak registry contents | ✅ |
+| No dependency CVEs | ✅ (cargo audit clean) |
+
+### Security Considerations for SDK Users
+
+When building an MCP server with this SDK, consider these security responsibilities:
+
+1. **Resource URI validation** — The SDK passes URIs directly to your handlers. If your handler reads from the filesystem, validate URIs against path traversal (`../../../etc/passwd`).
+
+2. **HTTP transport authentication** — The HTTP transport has no built-in auth. If exposing over a network, put it behind a reverse proxy with authentication (e.g., nginx + basic auth, Cloudflare Access).
+
+3. **HTTP bind address** — Always bind to `127.0.0.1:port` unless you explicitly want remote access. Never bind to `0.0.0.0` without auth.
+
+4. **Tool handler safety** — Tool handlers receive arbitrary JSON from the client. Validate all inputs. Never pass tool arguments directly to shell commands, SQL queries, or file operations without sanitization.
+
+5. **Handler panics** — Handlers should return `Err(McpError::...)` instead of panicking. A panicking handler will abort the process. Use `Result` for all error paths.
+
+6. **Rate limiting** — For HTTP transport, implement rate limiting at the reverse proxy level to prevent DoS.
 
 ## Comparison with TypeScript SDK
 
