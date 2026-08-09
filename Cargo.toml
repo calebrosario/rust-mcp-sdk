@@ -1,6 +1,6 @@
 [package]
 name = "mcp-sdk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
@@ -29,8 +29,14 @@ thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-test = "0.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.12", features = ["json"] }
 
 [[example]]
 name = "echo"
 path = "examples/echo.rs"
+required-features = ["stdio"]
+
+[[example]]
+name = "demo"
+path = "examples/demo.rs"
 required-features = ["stdio"]
