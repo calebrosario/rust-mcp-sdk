@@ -1,0 +1,36 @@
+[package]
+name = "mcp-sdk"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT"
+description = "Rust implementation of the Model Context Protocol (MCP) SDK"
+repository = "https://github.com/calebrosario/rust-mcp-sdk"
+documentation = "https://github.com/calebrosario/rust-mcp-sdk"
+keywords = ["mcp", "model-context-protocol", "ai", "llm", "json-rpc"]
+categories = ["api-bindings", "network-programming", "asynchronous"]
+
+[features]
+default = ["stdio"]
+stdio = ["dep:tokio"]
+http = ["dep:axum", "dep:tower", "dep:tower-http"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "rt", "sync"], optional = true }
+axum = { version = "0.7", features = ["json"], optional = true }
+tower = { version = "0.5", optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
+tracing = "0.1"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-test = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "echo"
+path = "examples/echo.rs"
+required-features = ["stdio"]
