@@ -5,20 +5,50 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![Protocol](https://img.shields.io/badge/MCP-2024--11--05-blue.svg)](https://modelcontextprotocol.io)
+[![Tests](https://img.shields.io/badge/tests-300-brightgreen.svg)](#testing)
+[![Security](https://img.shields.io/badge/security-audited-red.svg)](docs/SECURITY.md)
 
 ## What is MCP?
 
-The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standard that lets AI agents (Claude, GPT, etc.) communicate with external tools and services. It uses JSON-RPC 2.0 over stdio or HTTP, enabling agents to call tools, read resources, and execute prompts.
+The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standard that lets AI agents (Claude, GPT, etc.) communicate with external tools and services via JSON-RPC 2.0. Agents can call tools, read resources, and execute prompts — all through a single protocol.
 
 ## Why Rust?
 
 | Metric | TypeScript SDK | Rust SDK |
 |--------|---------------|----------|
-| Binary size | ~50MB (node + deps) | ~3MB (static) |
-| Startup time | ~500ms | ~2ms |
-| Memory usage | ~50-100MB | ~3-5MB |
-| Distribution | `npm install` + Node.js | Single binary download |
-| Type safety | Runtime (Zod) | Compile-time (serde) |
+| Binary size | ~50MB (node + deps) | **~3MB** (static) |
+| Startup time | ~500ms | **~2ms** |
+| Memory usage | ~50-100MB | **~3-5MB** |
+| Distribution | `npm install` + Node.js | **Single binary download** |
+| Type safety | Runtime (Zod) | **Compile-time (serde)** |
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph "Your MCP Server"
+        M[McpServer] --> TR[ToolRegistry]
+        M --> RR[ResourceRegistry]
+        M --> PR[PromptRegistry]
+        M --> INIT[Init State]
+        M --> DISP[Request Dispatcher]
+
+        DISP -->|tools/list\ntools/call| TR
+        DISP -->|resources/list\nresources/read| RR
+        DISP -->|prompts/list\nprompts/get| PR
+        DISP -->|initialize\nping| INIT
+    end
+
+    subgraph Transport
+        STDIO[StdioTransport\n10MB bounded reader\nUTF-8 validated] --> M
+        HTTP[HttpTransport\n10MB body limit\naxum router] --> M
+    end
+
+    subgraph "AI Agent"
+        CL[Claude / GPT / Cursor] -->|JSON-RPC 2.0| STDIO
+        CL -->|HTTP POST /mcp| HTTP
+    end
+```
 
 ## Quick Start
 
@@ -26,7 +56,7 @@ The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standa
 
 ```toml
 [dependencies]
-mcp-sdk = { version = "0.1", features = ["stdio"] }
+mcp-sdk = { version = "0.2", features = ["stdio"] }
 ```
 
 ### 2. Build a server
@@ -76,35 +106,36 @@ Add to `~/.claude/claude_desktop_config.json`:
 }
 ```
 
-### 4. Run the example
+### 4. Try the examples
 
 ```bash
-cargo run --example echo
+cargo run --example echo    # Tools only (echo + add)
+cargo run --example demo    # Tools + resources + prompts
 ```
 
-## Architecture
+## Onboarding
 
+New to the codebase? Here's the path:
+
+```mermaid
+graph LR
+    A[1. Read this README] --> B[2. Run examples/echo.rs]
+    B --> C[3. Read docs/PROTOCOL.md]
+    C --> D[4. Read CONTRIBUTING.md]
+    D --> E[5. Explore src/tool.rs]
+    E --> F[6. Explore src/server.rs]
+    F --> G[7. Run cargo test --all-features]
+    G --> H[8. Pick an issue and contribute!]
 ```
-┌──────────────────────────────────────────┐
-│           McpServer (builder)             │
-│  ┌─────────────┐  ┌──────────────────┐   │
-│  │ ToolRegistry │  │  ServerInfo      │   │
-│  │  (HashMap)   │  │  (name, version) │   │
-│  └──────┬───────┘  └──────────────────┘   │
-│         │                                 │
-│  ┌──────▼───────┐                         │
-│  │ handle_request │                       │
-│  │ (JSON-RPC)    │                        │
-│  └──────┬───────┘                         │
-└─────────┼─────────────────────────────────┘
-          │
-   ┌──────▼───────┐
-   │  Transport   │
-   ├──────────────┤
-   │ stdio (stdin)│  ← default, for CLI agents
-   │ HTTP+SSE     │  ← feature-gated, for web agents
-   └──────────────┘
-```
+
+| Step | File | Time |
+|------|------|------|
+| Understand the protocol | [docs/PROTOCOL.md](docs/PROTOCOL.md) | 10 min |
+| See a working server | [examples/demo.rs](examples/demo.rs) | 5 min |
+| Learn the tool pattern | [src/tool.rs](src/tool.rs) | 5 min |
+| Understand request dispatch | [src/server.rs](src/server.rs) | 10 min |
+| Security model | [docs/SECURITY.md](docs/SECURITY.md) | 10 min |
+| Contribution guide | [CONTRIBUTING.md](CONTRIBUTING.md) | 5 min |
 
 ## Feature Flags
 
@@ -114,11 +145,7 @@ cargo run --example echo
 | `http` | ❌ | HTTP transport for web agents (Windsurf, custom integrations) |
 
 ```toml
-# HTTP support
-mcp-sdk = { version = "0.1", features = ["stdio", "http"] }
-
-# Minimal (stdio only)
-mcp-sdk = "0.1"
+mcp-sdk = { version = "0.2", features = ["stdio", "http"] }
 ```
 
 ## API Reference
@@ -129,12 +156,19 @@ mcp-sdk = "0.1"
 let server = McpServer::new("name", "version");
 ```
 
-Methods:
-- `register_tool(ToolBuilder)` — register a tool (async)
-- `handle_request(&JsonRpcRequest)` — process a JSON-RPC request (async)
-- `server_info()` — get server name/version
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `new()` | `(name, version) -> Self` | Constructor |
+| `protocol_version()` | `(ProtocolVersion) -> Self` | Set protocol version (builder) |
+| `register_tool()` | `(&ToolBuilder) -> async` | Register a tool |
+| `register_resource()` | `(&ResourceBuilder) -> async` | Register a resource |
+| `register_prompt()` | `(&PromptBuilder) -> async` | Register a prompt |
+| `handle_request()` | `(&JsonRpcRequest) -> async -> McpResult<JsonRpcResponse>` | Process a JSON-RPC request |
+| `handle_notification()` | `(&JsonRpcNotification) -> async` | Process a notification |
+| `is_initialized()` | `-> async -> bool` | Check init state |
+| `server_info()` | `-> &ServerInfo` | Get server name/version |
 
-### ToolBuilder
+### Tools
 
 ```rust
 ToolBuilder::new("tool-name")
@@ -145,37 +179,9 @@ ToolBuilder::new("tool-name")
     })
 ```
 
-### CallToolResult
-
-```rust
-// Success
-CallToolResult::text("output string")
-
-// Error
-CallToolResult::error("something went wrong")
-
-// Custom content
-CallToolResult {
-    content: vec![Content::text("line 1"), Content::text("line 2")],
-    is_error: false,
-}
-```
-
-### Transports
-
-```rust
-// Stdio (default)
-StdioTransport::serve(Arc::new(server)).await?;
-
-// HTTP
-HttpTransport::serve(Arc::new(server), "127.0.0.1:3000").await?;
-```
-
 ### Resources
 
 ```rust
-use mcp_sdk::{ResourceBuilder, ResourceContents};
-
 server.register_resource(
     ResourceBuilder::new("file:///config.json", "Config")
         .description("Server configuration")
@@ -193,8 +199,6 @@ server.register_resource(
 ### Prompts
 
 ```rust
-use mcp_sdk::{PromptBuilder, PromptMessage};
-
 server.register_prompt(
     PromptBuilder::new("code_review")
         .description("Review code")
@@ -215,9 +219,45 @@ server.register_prompt(
 ).await;
 ```
 
-## MCP Protocol Compliance
+### Content Types
 
-### Implemented Methods
+```rust
+Content::text("output string")
+Content::Image { data: base64_string, mime_type: "image/png".into() }
+Content::ResourceLink { resource: ResourceLink { uri: "file:///x".into(), mime_type: None } }
+```
+
+### Transports
+
+```rust
+StdioTransport::serve(Arc::new(server)).await?;
+HttpTransport::serve(Arc::new(server), "127.0.0.1:3000").await?;
+```
+
+## Request Flow
+
+```mermaid
+sequenceDiagram
+    participant Agent as AI Agent
+    participant Transport
+    participant Server as McpServer
+    participant Registry as ToolRegistry
+    participant Handler
+
+    Agent->>Transport: tools/call {name: "echo", arguments: {...}}
+    Transport->>Transport: Validate UTF-8 + size ≤ 10MB
+    Transport->>Server: JsonRpcRequest
+    Server->>Server: Check init gate
+    Server->>Registry: get_handler("echo")
+    Registry-->>Server: ToolHandler (Arc clone)
+    Server->>Server: Release mutex
+    Server->>Handler: tokio::spawn(handler(args))
+    Handler-->>Server: CallToolResult
+    Server-->>Transport: JsonRpcResponse
+    Transport-->>Agent: {content: [...], isError: false}
+```
+
+## MCP Protocol Compliance
 
 | Method | Status | Description |
 |--------|--------|-------------|
@@ -233,9 +273,30 @@ server.register_prompt(
 | `completion/complete` | 📌 Planned | Autocomplete for arguments |
 | `logging/setLevel` | 📌 Planned | Server log level control |
 
-### Protocol Version
+**Protocol version:** `2024-11-05`
 
-Currently implements `2024-11-05`. The `protocol_version` method on `McpServer` can be used to negotiate versions.
+## Test Coverage
+
+| Test Suite | Tests | What It Covers |
+|-----------|-------|----------------|
+| `protocol_test.rs` | 74 | Every type: serialize, deserialize, edge cases |
+| `server_test.rs` | 40 | All 9 handlers, init gate, error paths, concurrency |
+| `security_test.rs` | 47 | Injection, DoS, panic recovery, concurrency safety |
+| `pentest_test.rs` | 33 | Exploit PoCs (pre-handshake, SSRF, path traversal, prompt injection) |
+| `tool_test.rs` | 20 | Registry CRUD, builder patterns, panic recovery |
+| `resource_test.rs` | 26 | Registry CRUD, blob/text content, overwrite, serde |
+| `prompt_test.rs` | 28 | Registry CRUD, argument builder, injection, serde |
+| `error_test.rs` | 16 | All 8 variants, code mapping, From conversions |
+| `http_transport_test.rs` | 8 | Real HTTP: initialize, tools, errors, concurrent |
+| **stdio unit tests** | 8 | Bounded reader: oversized, EOF, multibyte UTF-8 |
+| **Total** | **300** | |
+
+```bash
+cargo test --all-features          # Run all 300 tests
+cargo clippy --all-features -- -D warnings   # Lint (must be clean)
+cargo fmt --all -- --check         # Format check
+cargo audit                        # Dependency CVE check
+```
 
 ## Error Handling
 
@@ -246,49 +307,20 @@ handler(|args| async move {
     let name = args.get("name")
         .and_then(|v| v.as_str())
         .ok_or(McpError::InvalidParams("missing 'name' field".into()))?;
-
     Ok(CallToolResult::text(format!("Hello, {name}")))
 })
 ```
-
-Errors are automatically converted to JSON-RPC error responses with appropriate codes:
 
 | Error | Code | When |
 |-------|------|------|
 | `Parse` | -32700 | Invalid JSON |
 | `MethodNotFound` | -32601 | Unknown method |
-| `InvalidParams` | -32602 | Bad parameters |
-| `Internal` | -32603 | Server error |
+| `InvalidParams` | -32602 | Bad parameters or pre-init request |
+| `Internal` | -32603 | Server error, handler panic |
 | `ToolNotFound` | -32601 | Unknown tool name |
 | `ResourceNotFound` | -32002 | Unknown resource URI |
 | `PromptNotFound` | -32002 | Unknown prompt name |
 | `Transport` | -32000 | I/O error |
-
-## Testing
-
-```bash
-# Run tests
-cargo test
-
-# Run example
-cargo run --example echo
-
-# Type check
-cargo check --all-features
-
-# Format
-cargo fmt
-
-# Lint
-cargo clippy --all-features
-```
-
-## Use Cases
-
-- **Tool servers**: Expose CLI tools, database queries, or API calls to AI agents
-- **Sandbox execution**: Like [agentic-armor](https://github.com/calebrosario/agentic-armor) — manage Docker containers for untrusted code
-- **Data access**: Give agents read-only access to databases, files, or APIs
-- **Custom integrations**: Bridge any system to any MCP-compatible AI agent
 
 ## Security
 
@@ -296,28 +328,63 @@ cargo clippy --all-features
 
 | Protection | Status |
 |-----------|--------|
-| Payload size limit (stdio) | ✅ 10MB max line |
-| Argument logging level | ✅ DEBUG (not INFO) |
-| Raw payload removed from error logs | ✅ |
-| Handler error isolation | ✅ Errors return JSON-RPC error responses |
-| Error messages don't leak registry contents | ✅ |
-| No dependency CVEs | ✅ (cargo audit clean) |
+| Initialization gate (pre-handshake access blocked) | ✅ |
+| Bounded stdio reader (10MB max, rejects before allocation) | ✅ |
+| HTTP body size limit (10MB) | ✅ |
+| Handler panic isolation (tokio::spawn + JoinError catch) | ✅ |
+| Panic messages sanitized (no secrets leaked) | ✅ |
+| Mutex released before handler (no contention DoS) | ✅ |
+| Tool arguments at DEBUG level (not INFO) | ✅ |
+| Raw payload removed from parse error logs | ✅ |
+| No dependency CVEs (cargo audit clean) | ✅ |
 
-### Security Considerations for SDK Users
+Full security model: [docs/SECURITY.md](docs/SECURITY.md)
 
-When building an MCP server with this SDK, consider these security responsibilities:
+### Developer Responsibilities
 
-1. **Resource URI validation** — The SDK passes URIs directly to your handlers. If your handler reads from the filesystem, validate URIs against path traversal (`../../../etc/passwd`).
+1. **Validate tool arguments** inside handlers — the SDK doesn't enforce `inputSchema`
+2. **Validate resource URIs** against path traversal
+3. **Never pass arguments to shell commands** without sanitization
+4. **Add auth for HTTP** — use a reverse proxy
+5. **Bind HTTP to `127.0.0.1`** unless you have auth
+6. **Use `Result<T, McpError>` in handlers** — never `panic!()`
 
-2. **HTTP transport authentication** — The HTTP transport has no built-in auth. If exposing over a network, put it behind a reverse proxy with authentication (e.g., nginx + basic auth, Cloudflare Access).
+## Project Structure
 
-3. **HTTP bind address** — Always bind to `127.0.0.1:port` unless you explicitly want remote access. Never bind to `0.0.0.0` without auth.
+```
+rust-mcp-sdk/
+├── src/
+│   ├── lib.rs              Public API re-exports
+│   ├── protocol.rs         JSON-RPC 2.0 + MCP protocol types (332 lines)
+│   ├── server.rs           McpServer: dispatch, init gate, handlers (191 lines)
+│   ├── tool.rs             ToolBuilder + ToolRegistry with panic recovery
+│   ├── resource.rs         ResourceBuilder + ResourceRegistry
+│   ├── prompt.rs           PromptBuilder + PromptRegistry
+│   ├── error.rs            McpError enum with JSON-RPC code mapping
+│   └── transport/
+│       ├── mod.rs          Feature-gated transport exports
+│       ├── stdio.rs        Bounded line reader + newline-delimited JSON
+│       └── http.rs         axum POST /mcp with 10MB body limit
+├── tests/                  300 tests across 10 files
+├── examples/
+│   ├── echo.rs             Minimal server (2 tools)
+│   └── demo.rs             Full server (2 tools + 2 resources + 2 prompts)
+├── docs/
+│   ├── PROTOCOL.md         Protocol lifecycle, all methods, Mermaid diagrams
+│   └── SECURITY.md         Threat model, attack surface, mitigations
+├── .github/workflows/
+│   └── ci.yml              CI: test + clippy + fmt on push/PR (Rust 1.75 + stable)
+├── Cargo.toml              Package manifest (features: stdio, http)
+├── CHANGELOG.md            Version history
+└── CONTRIBUTING.md         Build/test/lint instructions + commit format
+```
 
-4. **Tool handler safety** — Tool handlers receive arbitrary JSON from the client. Validate all inputs. Never pass tool arguments directly to shell commands, SQL queries, or file operations without sanitization.
+## Use Cases
 
-5. **Handler panics** — Handlers should return `Err(McpError::...)` instead of panicking. A panicking handler will abort the process. Use `Result` for all error paths.
-
-6. **Rate limiting** — For HTTP transport, implement rate limiting at the reverse proxy level to prevent DoS.
+- **Tool servers** — Expose CLI tools, database queries, or API calls to AI agents
+- **Sandbox execution** — Like [agentic-armor](https://github.com/calebrosario/agentic-armor) — manage Docker containers for untrusted code
+- **Data access** — Give agents read-only access to databases, files, or APIs
+- **Custom integrations** — Bridge any system to any MCP-compatible AI agent
 
 ## Comparison with TypeScript SDK
 
@@ -329,6 +396,9 @@ When building an MCP server with this SDK, consider these security responsibilit
 | Async model | Event loop (single-threaded) | Tokio (multi-threaded) |
 | Error handling | try/catch + custom errors | `Result<T, McpError>` |
 | Tool registration | `server.registerTool()` | `server.register_tool(ToolBuilder)` |
+| Panic recovery | try/catch | `tokio::spawn` + `JoinError` catch |
+| Init gate | Client-side | Server-enforced |
+| Payload limit | Configurable | 10MB (stdio + HTTP) |
 | Startup | ~500ms | ~2ms |
 | Memory | ~50-100MB | ~3-5MB |
 
