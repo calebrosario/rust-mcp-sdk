@@ -1,16 +1,29 @@
+<div align="center">
+
 # rust-mcp-sdk
 
-> Rust implementation of the Model Context Protocol (MCP) — build MCP servers with type safety, async performance, and a single static binary.
+**The fastest way to build MCP servers. One binary. Zero runtime. Lightning fast.**
 
+[![CI](https://github.com/calebrosario/rust-mcp-sdk/actions/workflows/ci.yml/badge.svg)](https://github.com/calebrosario/rust-mcp-sdk/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![Protocol](https://img.shields.io/badge/MCP-2024--11--05-blue.svg)](https://modelcontextprotocol.io)
-[![Tests](https://img.shields.io/badge/tests-300-brightgreen.svg)](#testing)
-[![Security](https://img.shields.io/badge/security-audited-red.svg)](docs/SECURITY.md)
+[![Tests](https://img.shields.io/badge/tests-300-brightgreen.svg)](#test-coverage)
+[![Security](https://img.shields.io/badge/security-pentested-red.svg)](docs/SECURITY.md)
+
+Build production-grade [Model Context Protocol](https://modelcontextprotocol.io) servers in Rust. Give AI agents tools, resources, and prompts — with type safety, async performance, and a single ~3MB static binary.
+
+[Quick Start](#quick-start) · [Supported Agents](#supported-ai-agents) · [API Reference](#api-reference) · [Docs](docs/PROTOCOL.md) · [Security](docs/SECURITY.md)
+
+</div>
+
+---
 
 ## What is MCP?
 
-The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standard that lets AI agents (Claude, GPT, etc.) communicate with external tools and services via JSON-RPC 2.0. Agents can call tools, read resources, and execute prompts — all through a single protocol.
+The Model Context Protocol is an open standard that lets AI agents communicate with external tools and services via JSON-RPC 2.0. Agents can **call tools**, **read resources**, and **execute prompts** — all through a single protocol.
+
+**rust-mcp-sdk** lets you build MCP servers in Rust that work with any MCP-compatible AI agent — Claude Code, Cursor, Windsurf, OpenCode, and more.
 
 ## Why Rust?
 
@@ -22,44 +35,55 @@ The [Model Context Protocol](https://modelcontextprotocol.io/) is an open standa
 | Distribution | `npm install` + Node.js | **Single binary download** |
 | Type safety | Runtime (Zod) | **Compile-time (serde)** |
 
-## Architecture
+## Supported AI Agents
 
-```mermaid
-graph TB
-    subgraph "Your MCP Server"
-        M[McpServer] --> TR[ToolRegistry]
-        M --> RR[ResourceRegistry]
-        M --> PR[PromptRegistry]
-        M --> INIT[Init State]
-        M --> DISP[Request Dispatcher]
+Any MCP-compatible agent works out of the box. Here are the tested ones:
 
-        DISP -->|tools/list\ntools/call| TR
-        DISP -->|resources/list\nresources/read| RR
-        DISP -->|prompts/list\nprompts/get| PR
-        DISP -->|initialize\nping| INIT
-    end
+| Agent | Transport | Config Location | Status |
+|-------|-----------|----------------|--------|
+| **Claude Code** | stdio | `~/.claude/claude_desktop_config.json` | ✅ Tested |
+| **Claude Desktop** | stdio | `~/Library/Application Support/Claude/claude_desktop_config.json` | ✅ Compatible |
+| **Cursor** | stdio | `.cursor/mcp.json` (project) or Settings | ✅ Compatible |
+| **Windsurf** | stdio / HTTP | Windsurf Settings → MCP Servers | ✅ Compatible |
+| **OpenCode** | stdio | `.opencode/config.json` | ✅ Compatible |
+| **GitHub Copilot / Codex** | stdio | `.github/copilot-mcp.json` | ✅ Compatible |
+| **Custom agents** | stdio / HTTP | Any MCP-compatible client | ✅ SDK-level support |
 
-    subgraph Transport
-        STDIO[StdioTransport\n10MB bounded reader\nUTF-8 validated] --> M
-        HTTP[HttpTransport\n10MB body limit\naxum router] --> M
-    end
+> Don't see your agent? If it supports MCP, it works. [Open an issue](https://github.com/calebrosario/rust-mcp-sdk/issues) to add it to this list.
 
-    subgraph "AI Agent"
-        CL[Claude / GPT / Cursor] -->|JSON-RPC 2.0| STDIO
-        CL -->|HTTP POST /mcp| HTTP
-    end
-```
+## Installation
 
-## Quick Start
-
-### 1. Add to your project
+### As a dependency (for building servers)
 
 ```toml
 [dependencies]
 mcp-sdk = { version = "0.2", features = ["stdio"] }
 ```
 
-### 2. Build a server
+With HTTP transport:
+```toml
+mcp-sdk = { version = "0.2", features = ["stdio", "http"] }
+```
+
+### Build from source
+
+```bash
+git clone https://github.com/calebrosario/rust-mcp-sdk.git
+cd rust-mcp-sdk
+cargo build --release
+# Binary: target/release/your-server (when you build your own)
+```
+
+### Run the examples
+
+```bash
+cargo run --example echo    # Minimal: 2 tools (echo + add)
+cargo run --example demo    # Full: 2 tools + 2 resources + 2 prompts
+```
+
+## Quick Start
+
+### 1. Build a server
 
 ```rust
 use mcp_sdk::{McpServer, StdioTransport, ToolBuilder};
@@ -92,9 +116,11 @@ async fn main() {
 }
 ```
 
-### 3. Connect to Claude Code
+### 2. Connect your AI agent
 
-Add to `~/.claude/claude_desktop_config.json`:
+#### Claude Code / Claude Desktop
+
+Add to `~/.claude/claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -106,16 +132,118 @@ Add to `~/.claude/claude_desktop_config.json`:
 }
 ```
 
-### 4. Try the examples
+With environment variables:
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "/path/to/your/binary",
+      "env": {
+        "DATABASE_URL": "postgres://localhost/mydb",
+        "API_KEY": "your-key-here"
+      }
+    }
+  }
+}
+```
 
-```bash
-cargo run --example echo    # Tools only (echo + add)
-cargo run --example demo    # Tools + resources + prompts
+#### Cursor
+
+Add to `.cursor/mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "/path/to/your/binary"
+    }
+  }
+}
+```
+
+#### Windsurf
+
+Settings → MCP Servers → Add Server:
+```json
+{
+  "name": "my-server",
+  "command": "/path/to/your/binary",
+  "transport": "stdio"
+}
+```
+
+Or via HTTP transport:
+```json
+{
+  "name": "my-server",
+  "url": "http://127.0.0.1:3000/mcp",
+  "transport": "http"
+}
+```
+
+#### OpenCode
+
+Add to `.opencode/config.json`:
+```json
+{
+  "mcp": {
+    "my-server": {
+      "command": "/path/to/your/binary",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+#### GitHub Copilot / Codex
+
+Add to `.github/copilot-mcp.json`:
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "/path/to/your/binary"
+    }
+  }
+}
+```
+
+### 3. Verify the connection
+
+After adding the config, restart your AI agent. It should discover your server's tools via `tools/list`. Try asking the agent to use your tool.
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph "Your MCP Server"
+        M[McpServer] --> TR[ToolRegistry]
+        M --> RR[ResourceRegistry]
+        M --> PR[PromptRegistry]
+        M --> INIT[Init State]
+        M --> DISP[Request Dispatcher]
+
+        DISP -->|tools/list\ntools/call| TR
+        DISP -->|resources/list\nresources/read| RR
+        DISP -->|prompts/list\nprompts/get| PR
+        DISP -->|initialize\nping| INIT
+    end
+
+    subgraph Transport
+        STDIO[StdioTransport\n10MB bounded reader\nUTF-8 validated] --> M
+        HTTP[HttpTransport\n10MB body limit\naxum router] --> M
+    end
+
+    subgraph "AI Agent"
+        CL[Claude / Cursor / Windsurf\nOpenCode / Codex] -->|JSON-RPC 2.0| STDIO
+        CL -->|HTTP POST /mcp| HTTP
+    end
 ```
 
 ## Onboarding
 
-New to the codebase? Here's the path:
+New to the project? Follow this path:
 
 ```mermaid
 graph LR
@@ -156,17 +284,16 @@ mcp-sdk = { version = "0.2", features = ["stdio", "http"] }
 let server = McpServer::new("name", "version");
 ```
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `new()` | `(name, version) -> Self` | Constructor |
-| `protocol_version()` | `(ProtocolVersion) -> Self` | Set protocol version (builder) |
-| `register_tool()` | `(&ToolBuilder) -> async` | Register a tool |
-| `register_resource()` | `(&ResourceBuilder) -> async` | Register a resource |
-| `register_prompt()` | `(&PromptBuilder) -> async` | Register a prompt |
-| `handle_request()` | `(&JsonRpcRequest) -> async -> McpResult<JsonRpcResponse>` | Process a JSON-RPC request |
-| `handle_notification()` | `(&JsonRpcNotification) -> async` | Process a notification |
-| `is_initialized()` | `-> async -> bool` | Check init state |
-| `server_info()` | `-> &ServerInfo` | Get server name/version |
+| Method | Description |
+|--------|-------------|
+| `new(name, version)` | Create a new server |
+| `protocol_version(v)` | Set protocol version (builder) |
+| `register_tool(ToolBuilder)` | Register a tool (async) |
+| `register_resource(ResourceBuilder)` | Register a resource (async) |
+| `register_prompt(PromptBuilder)` | Register a prompt (async) |
+| `handle_request(&req)` | Process a JSON-RPC request (async) |
+| `handle_notification(&notif)` | Process a notification (async) |
+| `is_initialized()` | Check initialization state (async) |
 
 ### Tools
 
@@ -245,7 +372,7 @@ sequenceDiagram
     participant Handler
 
     Agent->>Transport: tools/call {name: "echo", arguments: {...}}
-    Transport->>Transport: Validate UTF-8 + size ≤ 10MB
+    Transport->>Transport: Validate UTF-8 + size <= 10MB
     Transport->>Server: JsonRpcRequest
     Server->>Server: Check init gate
     Server->>Registry: get_handler("echo")
@@ -275,6 +402,19 @@ sequenceDiagram
 
 **Protocol version:** `2024-11-05`
 
+## Use Cases
+
+| Use Case | Tools | Resources | Prompts | Example |
+|----------|-------|-----------|---------|---------|
+| **CLI tool server** | Expose shell commands as tools | — | — | File search, git operations |
+| **Database gateway** | Query, insert, update | Schema docs | SQL templates | Read-only DB explorer |
+| **File system access** | Read/write/list | File contents | Code review | Project analyzer |
+| **API proxy** | Call REST/GraphQL endpoints | API docs | Request templates | Jira/GitHub/Slack bridge |
+| **Sandbox execution** | Run code in containers | Execution logs | Code templates | [agentic-armor](https://github.com/calebrosario/agentic-armor) |
+| **DevOps automation** | Deploy, rollback, scale | Config files | Runbooks | CI/CD pipeline control |
+| **Documentation server** | Search docs | Markdown pages | Summarization | Internal knowledge base |
+| **Testing harness** | Run tests, get coverage | Test reports | Test generators | QA automation |
+
 ## Test Coverage
 
 | Test Suite | Tests | What It Covers |
@@ -292,10 +432,10 @@ sequenceDiagram
 | **Total** | **300** | |
 
 ```bash
-cargo test --all-features          # Run all 300 tests
+cargo test --all-features                    # Run all 300 tests
 cargo clippy --all-features -- -D warnings   # Lint (must be clean)
-cargo fmt --all -- --check         # Format check
-cargo audit                        # Dependency CVE check
+cargo fmt --all -- --check                   # Format check
+cargo audit                                  # Dependency CVE check
 ```
 
 ## Error Handling
@@ -342,8 +482,8 @@ Full security model: [docs/SECURITY.md](docs/SECURITY.md)
 
 ### Developer Responsibilities
 
-1. **Validate tool arguments** inside handlers — the SDK doesn't enforce `inputSchema`
-2. **Validate resource URIs** against path traversal
+1. **Validate tool arguments** — the SDK doesn't enforce `inputSchema`
+2. **Validate resource URIs** — against path traversal (`../../etc/passwd`)
 3. **Never pass arguments to shell commands** without sanitization
 4. **Add auth for HTTP** — use a reverse proxy
 5. **Bind HTTP to `127.0.0.1`** unless you have auth
@@ -355,8 +495,8 @@ Full security model: [docs/SECURITY.md](docs/SECURITY.md)
 rust-mcp-sdk/
 ├── src/
 │   ├── lib.rs              Public API re-exports
-│   ├── protocol.rs         JSON-RPC 2.0 + MCP protocol types (332 lines)
-│   ├── server.rs           McpServer: dispatch, init gate, handlers (191 lines)
+│   ├── protocol.rs         JSON-RPC 2.0 + MCP protocol types
+│   ├── server.rs           McpServer: dispatch, init gate, handlers
 │   ├── tool.rs             ToolBuilder + ToolRegistry with panic recovery
 │   ├── resource.rs         ResourceBuilder + ResourceRegistry
 │   ├── prompt.rs           PromptBuilder + PromptRegistry
@@ -373,18 +513,10 @@ rust-mcp-sdk/
 │   ├── PROTOCOL.md         Protocol lifecycle, all methods, Mermaid diagrams
 │   └── SECURITY.md         Threat model, attack surface, mitigations
 ├── .github/workflows/
-│   └── ci.yml              CI: test + clippy + fmt on push/PR (Rust 1.75 + stable)
-├── Cargo.toml              Package manifest (features: stdio, http)
+│   └── ci.yml              CI: test + clippy + fmt on push/PR
 ├── CHANGELOG.md            Version history
 └── CONTRIBUTING.md         Build/test/lint instructions + commit format
 ```
-
-## Use Cases
-
-- **Tool servers** — Expose CLI tools, database queries, or API calls to AI agents
-- **Sandbox execution** — Like [agentic-armor](https://github.com/calebrosario/agentic-armor) — manage Docker containers for untrusted code
-- **Data access** — Give agents read-only access to databases, files, or APIs
-- **Custom integrations** — Bridge any system to any MCP-compatible AI agent
 
 ## Comparison with TypeScript SDK
 
@@ -395,13 +527,32 @@ rust-mcp-sdk/
 | Transport | stdio + HTTP | stdio + HTTP (feature-gated) |
 | Async model | Event loop (single-threaded) | Tokio (multi-threaded) |
 | Error handling | try/catch + custom errors | `Result<T, McpError>` |
-| Tool registration | `server.registerTool()` | `server.register_tool(ToolBuilder)` |
 | Panic recovery | try/catch | `tokio::spawn` + `JoinError` catch |
 | Init gate | Client-side | Server-enforced |
 | Payload limit | Configurable | 10MB (stdio + HTTP) |
 | Startup | ~500ms | ~2ms |
 | Memory | ~50-100MB | ~3-5MB |
 
+## Contributing
+
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, commit format, and code quality requirements.
+
+1. Fork the repo
+2. Create a branch: `git checkout -b feat/my-feature`
+3. Write tests for new functionality
+4. Ensure all checks pass: `cargo test --all-features && cargo clippy --all-features -- -D warnings && cargo fmt --all -- --check`
+5. Open a PR
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**[⭐ Star this repo](https://github.com/calebrosario/rust-mcp-sdk)** if it helped you build something cool.
+
+Built by [Caleb Rosario](https://github.com/calebrosario) · Powered by Rust + Tokio + serde
+
+</div>
