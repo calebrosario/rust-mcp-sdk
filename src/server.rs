@@ -237,7 +237,7 @@ impl McpServer {
         };
 
         let arguments = get_params.arguments.unwrap_or(Value::Null);
-        let result = match handler {
+        let result: GetPromptResult = match handler {
             Some(h) => {
                 let handler_timeout = std::time::Duration::from_secs(
                     self.handler_timeout_secs,
