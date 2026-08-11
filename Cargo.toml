@@ -1,14 +1,29 @@
 [package]
-name = "mcp-sdk"
+name = "mcp-rust-sdk"
 version = "0.2.0"
 edition = "2021"
 rust-version = "1.75"
 license = "MIT"
-description = "Rust implementation of the Model Context Protocol (MCP) SDK"
+description = "Rust implementation of the Model Context Protocol (MCP) — build MCP servers with type safety, async performance, and a single binary"
 repository = "https://github.com/calebrosario/rust-mcp-sdk"
-documentation = "https://github.com/calebrosario/rust-mcp-sdk"
+homepage = "https://github.com/calebrosario/rust-mcp-sdk"
+documentation = "https://docs.rs/mcp-rust-sdk"
+readme = "README.md"
 keywords = ["mcp", "model-context-protocol", "ai", "llm", "json-rpc"]
 categories = ["api-bindings", "network-programming", "asynchronous"]
+exclude = [
+    ".github/",
+    ".gitignore",
+    ".opencode/",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "docs/",
+    "tests/",
+    "target/",
+]
+
+[lib]
+name = "mcp_sdk"
 
 [features]
 default = ["stdio"]
